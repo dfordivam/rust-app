@@ -9,7 +9,8 @@ use nanos_sdk::ecc::Secp256k1;
 use nanos_sdk::io;
 use nanos_sdk::io::SyscallError;
 use nanos_ui::ui;
-
+use nanos_sdk::NVMData;
+use nanos_sdk::nvm::*;
 nanos_sdk::set_panic!(nanos_sdk::exiting_panic);
 
 pub const BIP32_PATH: [u32; 5] = nanos_sdk::ecc::make_bip32_path(b"m/44'/535348'/0'/0/0");
@@ -81,13 +82,43 @@ fn sign_ui(message: &[u8]) -> Result<Option<([u8; 72], u32)>, SyscallError> {
     }
 }
 
+#[link_section=".nvm_data"]
+static mut SETTINGS: NVMData<AtomicStorage<u8>> =
+    NVMData::new(AtomicStorage::new(&0));
+
+pub struct Settings;
+
+impl Settings {
+    pub fn new() -> Settings { Settings}
+
+    #[inline(never)]
+    pub fn get(&self) -> u8 {
+        let settings = unsafe { SETTINGS.get_mut() };
+        return *settings.get_ref();
+    }
+
+    // The inline(never) is important. Otherwise weird segmentation faults happen on speculos.
+    #[inline(never)]
+    pub fn set(&mut self, v: &u8) {
+        let settings = unsafe { SETTINGS.get_mut() };
+        settings.update(v);
+    }
+}
+
 #[no_mangle]
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
-
+    let mut settings = Settings::new();
+    let v = settings.get();
+    let new = match v { 0 => 1, _ => 0};
+    settings.set(&new);
     loop {
         // Draw some 'welcome' screen
-        ui::SingleMessage::new("W e l c o m e").show();
+        if new == 0 {
+            ui::SingleMessage::new("has 0").show();
+        } else {
+            ui::SingleMessage::new("has non 0").show();
+        }
 
         // Wait for either a specific button push to exit the app
         // or an APDU command
